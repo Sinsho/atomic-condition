@@ -130,7 +130,8 @@ public:
         std::cout << "50th    fitness after random: " << std::scientific << topInputsRandom[inputSize/2].fitness << '\n';
         std::cout.precision(16);
         std::cout << "    Largest's input:  " << std::setw(25) << std::scientific << topInputsRandom[0].input << '\n';
-        std::cout << "    Largest's output: " << std::setw(25) << std::scientific << funcPtr->callAndGetResult(topInputsRandom[0].input) << '\n';
+        std::vector<double> inputs = {topInputsRandom[0].input};
+        std::cout << "    Largest's output: " << std::setw(25) << std::scientific << funcPtr->callAndGetResult(inputs) << '\n';
 
         std::make_heap(topInputsRandom.begin(), topInputsRandom.end(), pairGreater);
     }
@@ -145,7 +146,8 @@ public:
         std::cout << "50th    fitness after evo: " << std::scientific << topInputsEvolution[inputSize/2].fitness << '\n';
         std::cout.precision(16);
         std::cout << "    Largest's input:  " << std::setw(25) << std::scientific << topInputsEvolution[0].input << '\n';
-        std::cout << "    Largest's output: " << std::setw(25) << std::scientific << funcPtr->callAndGetResult(topInputsEvolution[0].input) << '\n';
+        std::vector<double> inputs = {topInputsEvolution[0].input};
+        std::cout << "    Largest's output: " << std::setw(25) << std::scientific << funcPtr->callAndGetResult(inputs) << '\n';
     }
 
     void printBriefInfo(int funcIndex) {
@@ -243,7 +245,8 @@ private:
 
         for (int i = 1; i <= randomIteration; i++) {
             x = _initDist();
-            funcUnderTest->call(x);
+            std::vector<double> inputs = {x};
+            funcUnderTest->call(inputs);
 
             // print the progress.
             if (i % (randomIteration/100) == 0)
@@ -315,7 +318,8 @@ private:
                         continue;
 
                     // 2.3 run with the new input.
-                    funcUnderTest->call(newInput);
+                    std::vector<double> inputs = {newInput};
+                    funcUnderTest->call(inputs);
                     if (!funcUnderTest->isSuccess())
                         continue;
                     y = funcUnderTest->getResult();
@@ -364,7 +368,8 @@ private:
             double curInput = curInst.getInputsEvolutionTop().input;
             double curFit = curInst.getInputsEvolutionTop().fitness;
 
-            funcUnderTest->call(curInput);
+            std::vector<double> inputs = {curInput};
+            funcUnderTest->call(inputs);
             y = funcUnderTest->getResult();
 
             bool started = false;
@@ -449,7 +454,8 @@ private:
             myfile << curInst.getOpCode() << ", ";
             myfile << std::setprecision(5) << std::scientific << pair.fitness << ", ";
             myfile << std::setprecision(16) << std::scientific << pair.input << ", ";
-            myfile << std::setprecision(16) << std::scientific << funcUnderTest->callAndGetResult(pair.input) << ", ";
+            std::vector<double> inputs = {pair.input};
+            myfile << std::setprecision(16) << std::scientific << funcUnderTest->callAndGetResult(inputs) << ", ";
             myfile << curInst.getTopInputCountToEnd() << ", ";
             myfile << curInst.getTopInputConditionToEnd() << "\n";
         }
@@ -464,23 +470,24 @@ int main(int argc, char *argv[]) {
 
     EvoSolver es;
     std::unique_ptr<FloatingPointFunction> funcPtr;
+    //
 
     if (argc == 1 || (argc > 1 && strcmp(argv[1], "example") == 0)) {
         int index = 0;
-	if (argc > 2)
-	    index = atoi(argv[2]);
-	if (index >= simpleFuncList.size()) {
-	    std::cout << "Invalid index in simpleFuncList\n";
-	    return 0;
-	}
+        if (argc > 2)
+            index = atoi(argv[2]);
+        if (index >= simpleFuncList.size()) {
+            std::cout << "Invalid index in simpleFuncList\n";
+            return 0;
+	    }
         funcPtr.reset(new SimpleFunction(index));
         es.run(funcPtr, index);
     }
     else if (argc > 2 && strcmp(argv[1], "gsl") == 0) {
 	if (!strcmp(argv[2],"all")) {
 	    for (int i = 0; i < GSLFuncList.size(); i++) {
-                funcPtr.reset(new GSLFunction(i));
-		es.run(funcPtr, i);
+//            funcPtr.reset(new GSLFunction(i));
+		    es.run(funcPtr, i);
 	    }
 	}
 	else {
@@ -489,7 +496,7 @@ int main(int argc, char *argv[]) {
 		std::cout << "Invalid index in GSLFuncList.\n";
 		return 0;
 	    }
-            funcPtr.reset(new GSLFunction(index));
+//            funcPtr.reset(new GSLFunction(index));
             es.run(funcPtr, index);
 	}
     }

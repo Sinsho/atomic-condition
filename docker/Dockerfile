@@ -16,7 +16,7 @@ RUN apt-get install -y --no-install-recommends \
 RUN pip3 install wheel
 RUN pip3 install mpmath
 
-RUN git clone https://github.com/FP-Analysis/atomic-condition.git atom && \
+RUN git clone https://github.com/Sinsho/atomic-condition atom && \
   cd atom
 
 # Build necessary objects.

@@ -1,6 +1,6 @@
 CXX=clang++-3.9
 LD=clang++-3.9
-CXXFLAGS=-std=c++11 -O2 -fPIC -fno-rtti
+CXXFLAGS=-std=c++14 -O2 -fPIC -fno-rtti
 
 CLANG=clang-3.9
 OPT=opt-3.9
