@@ -13,7 +13,7 @@ LLVMLDFLAGS=$(shell $(LLVMCFG) --ldflags)
 
 GSLCFG=/atom/gslbuild/bin/gsl-config
 GSLCXXFLAGS=$(CXXFLAGS) $(shell $(GSLCFG) --cflags)
-GSLLDFLAGS=-static $(shell $(GSLCFG) --libs)
+GSLLDFLAGS=$(shell $(GSLCFG) --libs)
 
 OS_NAME=$(shell uname -s)
 ifeq ($(OS_NAME), Darwin)
