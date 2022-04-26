@@ -77,7 +77,7 @@ vecFunc vectorizeFunction(std::function<double(Args...)> f, int argCount){
 //};
 
 const std::vector<vecFunc> simpleFuncList = {
-        vectorizeFunction(std::function<double(double)>(foo), getArgumentCount(foo)),
+        vectorizeFunction(std::function<double(double, double, double)>(foo), getArgumentCount(foo)),
 };
 
 //const std::vector<gslVecFunc> GSLFuncList = {
@@ -228,6 +228,7 @@ public:
     virtual double getResult() = 0;
     virtual double callAndGetResult(std::vector<double> x) = 0;
     virtual bool isSuccess() = 0;
+    virtual int getArgCount() = 0;
 //    virtual double testFuncResult(std::vector<double> test) = 0;
 //    virtual int getArgCount() = 0;
     std::vector<InstInfo> getInstInfoList() {
