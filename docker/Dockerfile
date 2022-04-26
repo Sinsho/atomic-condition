@@ -6,21 +6,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends apt-utils
 RUN apt-get install -y --no-install-recommends \
   ca-certificates \
   git \
-  vim \
   build-essential \
   clang-3.9 \
   llvm-3.9 \
   python3 \
   python3-setuptools \
-  python3-pip \
+  python3-pip
+
+#install dependencies for libcmaes
+RUN apt-get update
+RUN apt-get install -y \
+  vim \
   autoconf \
   automake \
   libtool \
   libgoogle-glog-dev \
   libgflags-dev \
   libeigen3-dev
-
-#libeigen is needed for libcmaes
 
 RUN pip3 install wheel
 RUN pip3 install mpmath
@@ -40,6 +42,16 @@ RUN make -j4
 RUN ln -s /atom/misc/compile-gsl-sf.sh /atom/gsl-2.5/specfunc
 WORKDIR /atom/gsl-2.5/specfunc
 RUN ./compile-gsl-sf.sh
+
+# Build libcmaes
+WORKDIR /atom
+RUN git clone https://github.com/beniz/libcmaes.git
+WORKDIR /atom/libcmaes
+RUN ./autogen.sh
+RUN echo "#define CMAES_EXPORT" > include/libcmaes/cmaes_export.h
+RUN ./configure --prefix /usr
+RUN make && make install
+RUN ldconfig
 
 # Ready for building solver.
 WORKDIR /atom
