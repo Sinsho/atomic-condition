@@ -20,6 +20,9 @@
 #include "fpUtil.h"
 #include "fpInterface.h"
 
+// libcmaes library
+#include "cmaes.h"
+
 class InputFitnessPair {
 public:
     double input;
@@ -52,6 +55,39 @@ public:
         return lhs.fitness < rhs.fitness;
     }
 }pairLess;
+
+struct inputAtomicPair{
+    std::vector<double> inputs;
+    double atomicCond;
+};
+
+class InstructionInfoMultVar{
+private:
+    uint64_t instID;
+    uint64_t opcode;
+    inputAtomicPair candidate = {{}, -std::numeric_limits<double>::max()};
+    // For recording prioritization results.
+    uint32_t topInputCountToEnd;
+    double   topInputConditionToEnd;
+public:
+    InstructionInfoMultVar() {
+        instID = 0;
+        opcode = 0;
+    }
+    InstructionInfoMultVar(uint64_t id, uint64_t op) {
+        instID = id;
+        opcode = op;
+    }
+    uint64_t getInstID() const { return instID; }
+    uint64_t getOpCode() const { return opcode; }
+    inputAtomicPair getCandidatePair() {return candidate;}
+    void setCandidatePair(inputAtomicPair pair){candidate = pair;}
+
+    void setTopInputCountToEnd(uint32_t c) { topInputCountToEnd = c; }
+    void setTopInputConditionToEnd(double d) { topInputConditionToEnd = d; }
+    uint32_t getTopInputCountToEnd() const { return topInputCountToEnd; }
+    double getTopInputConditionToEnd() const { return topInputConditionToEnd; }
+};
 
 class InstructionInfo {
 private:
@@ -162,6 +198,7 @@ class EvoSolver {
 private:
     std::unique_ptr<FloatingPointFunction> funcUnderTest;
     std::map<uint64_t, InstructionInfo> instMap;
+    std::map<uint64_t, InstructionInfoMultVar> instMapMultVar;
     uint32_t unstableInstCount = 0;
     int32_t GSLFuncIndex;
     // For record execution time.
@@ -200,9 +237,14 @@ public:
     void run(std::unique_ptr<FloatingPointFunction> & funcPtr, int index) {
         startTime = std::chrono::high_resolution_clock::now();
         _init(funcPtr, index);
-        _1RandomSearch();
-        _2EvolutionSearch();
-        _3Prioritize();
+        if (funcUnderTest->getArgCount() == 1) {
+            _1RandomSearch();
+            _2EvolutionSearch();
+            _3Prioritize();
+        } else {
+            _1RandomSearchMultVar();
+            _2CMAESearch();
+        }
         finishTime = std::chrono::high_resolution_clock::now();
         elapsedTime = finishTime - startTime;
 
@@ -237,6 +279,117 @@ private:
             x = fpUtil::buildDouble(xsign, xexpo, xfrac);
         }
         return x;
+    }
+
+    void _1RandomSearchMultVar(){
+        int dim = funcUnderTest->getArgCount();
+
+        for (int i = 1; i <= randomIteration; i++) {
+            std::vector<double> inputs;
+            for (int j = 0; j < dim; j++){
+                inputs.push_back(_initDist());
+            }
+
+            funcUnderTest->call(inputs);
+
+            // print the progress.
+            if (i % (randomIteration/100) == 0)
+                std::cout << "1. Random Search Processing: " << i / (randomIteration/100) << "%, " << i << "..." << "\r" << std::flush;
+
+            // Only log when the execution is success.
+            if (!funcUnderTest->isSuccess())
+                continue;
+//            funcUnderTest->getResult();
+
+            std::vector<InstInfo> infoList = funcUnderTest->getInstInfoList();
+
+
+            for (const auto &info : infoList) {
+                if (instMapMultVar.count(info.instID) == 0) {
+                    instMapMultVar[info.instID] = InstructionInfoMultVar(info.instID, info.opcode);
+                }
+
+                double atomicCond = fpUtil::revisedCondition(info.opcode, info.op1, info.op2);
+//                std::cout << "Atomic cond: " << atomicCond << std::endl;
+                InstructionInfoMultVar &curInst = instMapMultVar[info.instID];
+                if (curInst.getCandidatePair().atomicCond <  atomicCond && std::isfinite(atomicCond)){
+                    curInst.setCandidatePair({inputs, atomicCond});
+                }
+            }
+        }
+
+        _printInstMapMultVar();
+    }
+
+    void _2CMAESearch(){
+        std::vector<InstInfo> infoList = funcUnderTest->getInstInfoList();
+        for (const auto &info : infoList) {
+            libcmaes::FitFunc optFunc = [this, &info] (const double *x, const int N) mutable {
+                std::vector<double> inputs;
+                for (int i=0; i < N; i++) {
+                    inputs.push_back(x[i]);
+                }
+                uint64_t instID = info.instID;
+//                std::cout << infoList == this->funcUnderTest->getInstInfoList() << std::endl;
+//                double res = this->funcUnderTest->callAndGetResult(inputs);
+//                std::cout << "I hate c++ " << res << std::endl;
+//                u->call(inputs);
+//                bool blub = infoList == this->funcUnderTest->getInstInfoList();
+
+                this->funcUnderTest->call(inputs);
+                std::vector<InstInfo> tmpInfoList = this->funcUnderTest->getInstInfoList();
+//                std::cout << infoList ==  << std::endl;
+//                double bla = -fpUtil::revisedCondition(info.opcode, info.op1, info.op2);
+//                std::cout << bla << std::endl;
+
+                double res = 0;
+                for (const auto &tmpInfo : tmpInfoList) {
+                    if (instID != tmpInfo.instID)
+                        continue;
+                    res = fpUtil::revisedCondition(tmpInfo.opcode, tmpInfo.op1, tmpInfo.op2);
+                }
+
+//                std::cout << res << std::endl;
+                return -res;
+            };
+
+            std::vector<double> in = instMapMultVar[info.instID].getCandidatePair().inputs;
+            std::vector<double> x0 = in;
+
+//            double bla [funcUnderTest->getArgCount()];
+            double bla [funcUnderTest->getArgCount()] = {-0.180807,-209.222,  -37.8287};
+            std::vector<double> blub = {-0.0322845, 6.90581e-08, 0.00534196};
+            funcUnderTest->call(blub);
+            std::vector<InstInfo> infoList2 = funcUnderTest->getInstInfoList();
+            for (const auto &info2 : infoList2) {
+                double k = fpUtil::revisedCondition(info2.opcode, info2.op1, info2.op2);
+                std::cout << "Is: " << k << std::endl;
+            }
+
+//            for (int i = 0; i < x0.size(); i++){
+//                bla[i] = x0[i];
+//            }
+//
+//            double test = optFunc(bla, funcUnderTest->getArgCount());
+
+            double test = optFunc(bla, funcUnderTest->getArgCount());
+            std::cout << "Test : " << test << std::endl;
+            double sigma = 0.1;
+            libcmaes::CMAParameters<> cmaparams(x0,sigma);
+            libcmaes::CMASolutions cmasols = libcmaes::cmaes<>(optFunc,cmaparams);
+            cmaparams.set_algo(aCMAES);
+            std::cout << "best solution: " << cmasols << std::endl;
+            std::cout << "optimization took " << cmasols.elapsed_time() / 1000.0 << " seconds\n";
+            std::cout << cmasols.run_status() << std::endl;
+        }
+
+
+//        int dim = 3; // problem dimensions.
+//        std::vector<double> x0 = {3.0, 2.1, 4.2};
+//        double sigma = 0.1;
+        //int lambda = 100; // offsprings at each generation.
+
+        //cmaparams.set_algo(BIPOP_CMAES);
     }
 
     // The results stored in instMap.
@@ -426,6 +579,21 @@ private:
         std::cout.unsetf(std::ios_base::floatfield);
         std::cout << "Execution Time: " << elapsedTime.count() << " sec.\n";
         std::cout << "************************************************\n";
+    }
+
+    void _printInstMapMultVar(){
+        for (const auto &entry : instMapMultVar){
+            uint64_t index = entry.first;
+            InstructionInfoMultVar value = entry.second;
+
+            std::cout << "************************************************\n";
+            std::cout << "Index: " << index << " atomicCond: " << value.getCandidatePair().atomicCond << " inputs: ";
+            for(double d : value.getCandidatePair().inputs){
+                std::cout << d << ", ";
+            }
+            std::cout << std::endl;
+            std::cout << "************************************************\n";
+        }
     }
 
     void _writeToFile() {
