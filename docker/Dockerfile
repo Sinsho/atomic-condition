@@ -6,12 +6,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends apt-utils
 RUN apt-get install -y --no-install-recommends \
   ca-certificates \
   git \
+  vim \
   build-essential \
   clang-3.9 \
   llvm-3.9 \
   python3 \
   python3-setuptools \
-  python3-pip
+  python3-pip \
+  autoconf \
+  automake \
+  libtool \
+  libgoogle-glog-dev \
+  libgflags-dev \
+  libeigen3-dev
+
+#libeigen is needed for libcmaes
 
 RUN pip3 install wheel
 RUN pip3 install mpmath
