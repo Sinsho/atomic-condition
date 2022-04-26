@@ -1,5 +1,5 @@
-CXX=clang++-3.9
-LD=clang++-3.9
+CXX=g++
+LD=g++
 CXXFLAGS=-std=c++14 -O2 -fPIC -fno-rtti
 
 CLANG=clang-3.9
