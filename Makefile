@@ -1,6 +1,6 @@
 CXX=g++
 LD=g++
-CXXFLAGS=-std=c++14 -O2 -fPIC -fno-rtti -I/usr/include/eigen3/ -I/usr/local/include/libcmaes -lcmaes
+CXXFLAGS=-std=c++14 -O2 -fPIC -fno-rtti -I/usr/include/eigen3/ -I/usr/include/libcmaes -lcmaes
 
 CLANG=clang-3.9
 OPT=opt-3.9
@@ -56,7 +56,7 @@ build/targetExample.o: src/targetExample.c lib/libPassModule.so
 solver: bin/gslSolver.out
 bin/gslSolver.out: build/gslSolver.o build/fpUtil.o build/handlers.o build/all_target.a
 	@mkdir -p bin
-	$(LD) -o $@ $^ $(GSLLDFLAGS) -I/usr/include/eigen3/ -I/usr/local/include/libcmaes -lcmaes
+	$(LD) -o $@ $^ $(GSLLDFLAGS) -I/usr/include/eigen3/ -I/usr/include/libcmaes -lcmaes
 build/gslSolver.o: src/gslSolver.cpp $(DEPS)
 	@mkdir -p build
 	$(CXX) $(GSLCXXFLAGS) -c -o $@ $<
