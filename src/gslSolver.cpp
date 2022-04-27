@@ -9,6 +9,7 @@
 #include <cstring>
 #include <unordered_map>
 #include <map>
+#include <utility>
 #include <vector>
 #include <queue>
 #include <algorithm>
@@ -65,7 +66,10 @@ class InstructionInfoMultVar{
 private:
     uint64_t instID;
     uint64_t opcode;
+//    std::vector<inputAtomicPair> topInputsRandom;
+//    std::map<uint64_t, inputAtomicPair> candidatePairs;
     inputAtomicPair candidate = {{}, -std::numeric_limits<double>::max()};
+
     // For recording prioritization results.
     uint32_t topInputCountToEnd;
     double   topInputConditionToEnd;
@@ -210,7 +214,7 @@ private:
     // For _1RandomSearch
     double initExpRange = 20;
     double initCenterRate = 0.15;
-    uint32_t randomIteration = 100000;
+    uint32_t randomIteration = 1000;
     // For _2EvolutionSearch
     double evoGeometricP = 0.25;
     double evoNormalFactorStart = 1e-2;
@@ -242,8 +246,7 @@ public:
             _2EvolutionSearch();
             _3Prioritize();
         } else {
-            _1RandomSearchMultVar();
-            _2CMAESearch();
+            _1directCMAESearch();
         }
         finishTime = std::chrono::high_resolution_clock::now();
         elapsedTime = finishTime - startTime;
@@ -281,7 +284,7 @@ private:
         return x;
     }
 
-    void _1RandomSearchMultVar(){
+    void _1directCMAESearch(){
         int dim = funcUnderTest->getArgCount();
 
         for (int i = 1; i <= randomIteration; i++) {
@@ -291,105 +294,57 @@ private:
             }
 
             funcUnderTest->call(inputs);
-
-            // print the progress.
-            if (i % (randomIteration/100) == 0)
-                std::cout << "1. Random Search Processing: " << i / (randomIteration/100) << "%, " << i << "..." << "\r" << std::flush;
-
-            // Only log when the execution is success.
-            if (!funcUnderTest->isSuccess())
-                continue;
-//            funcUnderTest->getResult();
-
             std::vector<InstInfo> infoList = funcUnderTest->getInstInfoList();
-
-
             for (const auto &info : infoList) {
-                if (instMapMultVar.count(info.instID) == 0) {
-                    instMapMultVar[info.instID] = InstructionInfoMultVar(info.instID, info.opcode);
-                }
+                // optFunc is the objective function of the negative atomic condition which is minimized by CMAES
+                // Pass EvoSolver (this) object as value to capture funcUnderTest
+                libcmaes::FitFunc optFunc = [this, &info] (const double *x, const int N) mutable {
+                    std::vector<double> inputs;
+                    for (int i=0; i < N; i++) {
+                        inputs.push_back(x[i]);
+                    }
+                    uint64_t instID = info.instID;
 
-                double atomicCond = fpUtil::revisedCondition(info.opcode, info.op1, info.op2);
-//                std::cout << "Atomic cond: " << atomicCond << std::endl;
+                    this->funcUnderTest->call(inputs);
+                    std::vector<InstInfo> tmpInfoList = this->funcUnderTest->getInstInfoList();
+
+                    double res = 0;
+                    for (const auto &tmpInfo : tmpInfoList) {
+                        if (instID != tmpInfo.instID)
+                            continue;
+                        res = fpUtil::revisedCondition(tmpInfo.opcode, tmpInfo.op1, tmpInfo.op2);
+                    }
+
+                    if (std::isfinite(res)){
+                        // Invert atomic condition since CMAES minimizes
+                        return -res;
+                    }
+                    return std::numeric_limits<double>::max();
+                };
+
+                double sigma = 0.1;
+                libcmaes::CMAParameters<> cmaparams(inputs,sigma);
+                libcmaes::CMASolutions cmasols = libcmaes::cmaes<>(optFunc,cmaparams);
+
                 InstructionInfoMultVar &curInst = instMapMultVar[info.instID];
-                if (curInst.getCandidatePair().atomicCond <  atomicCond && std::isfinite(atomicCond)){
-                    curInst.setCandidatePair({inputs, atomicCond});
+                if (cmasols.run_status() > 0){
+                    if (instMapMultVar.count(info.instID) == 0) {
+                        instMapMultVar[info.instID] = InstructionInfoMultVar(info.instID, info.opcode);
+                    }
+
+                    // Represents the highest atomic condition found in one optimization run
+                    double f_val = -cmasols.best_candidate().get_fvalue();
+                    std::vector<double> x_val = cmasols.best_candidate().get_x();
+
+                    // Update best found input/atomic condition pair so far
+                    if (curInst.getCandidatePair().atomicCond <  f_val && std::isfinite(f_val)){
+                        curInst.setCandidatePair({x_val, f_val});
+                    }
                 }
             }
         }
 
         _printInstMapMultVar();
-    }
-
-    void _2CMAESearch(){
-        std::vector<InstInfo> infoList = funcUnderTest->getInstInfoList();
-        for (const auto &info : infoList) {
-            libcmaes::FitFunc optFunc = [this, &info] (const double *x, const int N) mutable {
-                std::vector<double> inputs;
-                for (int i=0; i < N; i++) {
-                    inputs.push_back(x[i]);
-                }
-                uint64_t instID = info.instID;
-//                std::cout << infoList == this->funcUnderTest->getInstInfoList() << std::endl;
-//                double res = this->funcUnderTest->callAndGetResult(inputs);
-//                std::cout << "I hate c++ " << res << std::endl;
-//                u->call(inputs);
-//                bool blub = infoList == this->funcUnderTest->getInstInfoList();
-
-                this->funcUnderTest->call(inputs);
-                std::vector<InstInfo> tmpInfoList = this->funcUnderTest->getInstInfoList();
-//                std::cout << infoList ==  << std::endl;
-//                double bla = -fpUtil::revisedCondition(info.opcode, info.op1, info.op2);
-//                std::cout << bla << std::endl;
-
-                double res = 0;
-                for (const auto &tmpInfo : tmpInfoList) {
-                    if (instID != tmpInfo.instID)
-                        continue;
-                    res = fpUtil::revisedCondition(tmpInfo.opcode, tmpInfo.op1, tmpInfo.op2);
-                }
-
-//                std::cout << res << std::endl;
-                return -res;
-            };
-
-            std::vector<double> in = instMapMultVar[info.instID].getCandidatePair().inputs;
-            std::vector<double> x0 = in;
-
-//            double bla [funcUnderTest->getArgCount()];
-            double bla [funcUnderTest->getArgCount()] = {-0.180807,-209.222,  -37.8287};
-            std::vector<double> blub = {-0.0322845, 6.90581e-08, 0.00534196};
-            funcUnderTest->call(blub);
-            std::vector<InstInfo> infoList2 = funcUnderTest->getInstInfoList();
-            for (const auto &info2 : infoList2) {
-                double k = fpUtil::revisedCondition(info2.opcode, info2.op1, info2.op2);
-                std::cout << "Is: " << k << std::endl;
-            }
-
-//            for (int i = 0; i < x0.size(); i++){
-//                bla[i] = x0[i];
-//            }
-//
-//            double test = optFunc(bla, funcUnderTest->getArgCount());
-
-            double test = optFunc(bla, funcUnderTest->getArgCount());
-            std::cout << "Test : " << test << std::endl;
-            double sigma = 0.1;
-            libcmaes::CMAParameters<> cmaparams(x0,sigma);
-            libcmaes::CMASolutions cmasols = libcmaes::cmaes<>(optFunc,cmaparams);
-            cmaparams.set_algo(aCMAES);
-            std::cout << "best solution: " << cmasols << std::endl;
-            std::cout << "optimization took " << cmasols.elapsed_time() / 1000.0 << " seconds\n";
-            std::cout << cmasols.run_status() << std::endl;
-        }
-
-
-//        int dim = 3; // problem dimensions.
-//        std::vector<double> x0 = {3.0, 2.1, 4.2};
-//        double sigma = 0.1;
-        //int lambda = 100; // offsprings at each generation.
-
-        //cmaparams.set_algo(BIPOP_CMAES);
     }
 
     // The results stored in instMap.
@@ -593,6 +548,13 @@ private:
             }
             std::cout << std::endl;
             std::cout << "************************************************\n";
+//            funcUnderTest->call(value.getCandidatePair().inputs);
+//            std::vector<InstInfo> infolist = funcUnderTest->getInstInfoList();
+//            for (const auto &info : infolist) {
+//                double atomicCond = fpUtil::revisedCondition(info.opcode, info.op1, info.op2);
+//                std::cout << "Instid: "<< info.instID <<"Atomic cond: " << atomicCond << std::endl;
+//            }
+//            std::cout << "Real atomic cond: ";
         }
     }
 
