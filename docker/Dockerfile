@@ -24,6 +24,15 @@ RUN apt-get install -y \
   libgflags-dev \
   libeigen3-dev
 
+#install dependencies for nomad
+RUN apt-get update
+RUN apt-get install -y \
+    unzip \
+    wget \
+    libssl-dev \
+    gcc-8 \
+    g++-8
+
 RUN pip3 install wheel
 RUN pip3 install mpmath
 
@@ -52,6 +61,32 @@ RUN echo "#define CMAES_EXPORT" > include/libcmaes/cmaes_export.h
 RUN ./configure --prefix /usr
 RUN make && make install
 RUN ldconfig
+
+# Build cmake since nomad needs a newer cmake version than the one available in the package repo from Ubuntu 18.04
+WORKDIR /tmp
+RUN wget https://github.com/Kitware/CMake/releases/download/v3.23.1/cmake-3.23.1.tar.gz
+RUN tar -xzvf cmake-3.23.1.tar.gz
+WORKDIR /tmp/cmake-3.23.1
+RUN ./bootstrap
+RUN make -j$(nproc)
+RUN make install
+
+# Swap gcc version for nomad
+RUN rm /usr/bin/gcc
+RUN ln -s /usr/bin/gcc-8 /usr/bin/gcc
+RUN rm /usr/bin/g++
+RUN ln -s /usr/bin/g++-8 /usr/bin/g++
+
+# Build nomads
+WORKDIR /atom
+ENV NOMAD_HOME=/atom/nomad
+RUN git clone https://github.com/bbopt/nomad.git
+WORKDIR /atom/nomad
+RUN cmake -S . -B build/release
+RUN cmake --build build/release
+RUN cmake --install build/release
+RUN cp -R /atom/nomad/build/release/lib/* /usr/lib/
+
 
 # Ready for building solver.
 WORKDIR /atom
