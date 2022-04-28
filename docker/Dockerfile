@@ -82,7 +82,7 @@ WORKDIR /atom
 ENV NOMAD_HOME=/atom/nomad
 RUN git clone https://github.com/bbopt/nomad.git
 WORKDIR /atom/nomad
-RUN cmake -S . -B build/release
+RUN cmake -DTEST_OPENMP=OFF -S . -B build/release
 RUN cmake --build build/release
 RUN cmake --install build/release
 RUN cp -R /atom/nomad/build/release/lib/* /usr/lib/

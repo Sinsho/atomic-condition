@@ -23,6 +23,76 @@
 
 // libcmaes library
 #include "cmaes.h"
+#include "Nomad/nomad.hpp"
+#include "Cache/CacheBase.hpp"
+
+class My_Evaluator : public NOMAD::Evaluator
+{
+private:
+    uint64_t instID;
+    std::shared_ptr<FloatingPointFunction> func;
+public:
+    My_Evaluator(const std::shared_ptr<NOMAD::EvalParameters>& evalParams)
+            : NOMAD::Evaluator(evalParams, NOMAD::EvalType::BB)
+    {}
+
+    ~My_Evaluator() {}
+
+    void setInstId(uint64_t instID){
+        this->instID = instID;
+    }
+
+    void setFunc(std::shared_ptr<FloatingPointFunction> &f){
+        this->func = f;
+    }
+
+    bool eval_x(NOMAD::EvalPoint &x, const NOMAD::Double &hMax, bool &countEval) const override
+    {
+        bool eval_ok = false;
+
+        try
+        {
+            NOMAD::Double res = 0;
+            std::vector<double> inputs;
+            for (int i = 0; i < x.size(); i++){
+                inputs.push_back(x[i].todouble());
+            }
+
+            if (inputs.size() == func->getArgCount()){
+                func->call(inputs);
+
+                std::vector<InstInfo> infoList = func->getInstInfoList();
+                for (const auto &info : infoList) {
+                    if (info.instID != instID){
+                        continue;
+                    }
+
+                    double atomicCond = fpUtil::revisedCondition(info.opcode, info.op1, info.op2);
+                    if (std::isfinite(atomicCond)){
+                        res = -atomicCond;
+                    }
+                }
+            }
+
+            auto bbOutputType = _evalParams->getAttributeValue<NOMAD::BBOutputTypeList>("BB_OUTPUT_TYPE");
+            std::string bbo = res.tostring();
+
+            x.setBBO(bbo);
+
+            eval_ok = true;
+        }
+        catch (std::exception &e)
+        {
+            std::string err("Exception: ");
+            err += e.what();
+            throw std::logic_error(err);
+            x.setBBO("0");
+        }
+
+        countEval = true;
+        return eval_ok;
+    }
+};
 
 class InputFitnessPair {
 public:
@@ -200,7 +270,7 @@ public:
 
 class EvoSolver {
 private:
-    std::unique_ptr<FloatingPointFunction> funcUnderTest;
+    std::shared_ptr<FloatingPointFunction> funcUnderTest;
     std::map<uint64_t, InstructionInfo> instMap;
     std::map<uint64_t, InstructionInfoMultVar> instMapMultVar;
     uint32_t unstableInstCount = 0;
@@ -214,7 +284,9 @@ private:
     // For _1RandomSearch
     double initExpRange = 20;
     double initCenterRate = 0.15;
-    uint32_t randomIteration = 1000;
+    uint32_t randomIteration = 100000;
+    uint32_t cmaesIteration = 1000;
+    uint32_t nomadIteration = 20;
     // For _2EvolutionSearch
     double evoGeometricP = 0.25;
     double evoNormalFactorStart = 1e-2;
@@ -246,7 +318,8 @@ public:
             _2EvolutionSearch();
             _3Prioritize();
         } else {
-            _1directCMAESearch();
+//            _1directCMAESearch();
+            _1directNomadSearch();
         }
         finishTime = std::chrono::high_resolution_clock::now();
         elapsedTime = finishTime - startTime;
@@ -284,10 +357,66 @@ private:
         return x;
     }
 
+    void _1directNomadSearch(){
+        int dim = funcUnderTest->getArgCount();
+
+        for (int i = 1; i <= nomadIteration; i++) {
+            std::vector<double> inputs;
+            for (int j = 0; j < dim; j++) {
+                inputs.push_back(fpUtil::randDouble());
+            }
+
+            funcUnderTest->call(inputs);
+            std::vector<InstInfo> infoList = funcUnderTest->getInstInfoList();
+            for (const auto &info : infoList) {
+                NOMAD::MainStep mainStep;
+                auto params = std::make_shared<NOMAD::AllParameters>();
+                initAllNomadParams(params, funcUnderTest->getArgCount(), inputs);
+                mainStep.setAllParameters(params);
+                std::unique_ptr<My_Evaluator> ev(new My_Evaluator(params->getEvalParams()));
+                ev->setInstId(info.instID);
+                ev->setFunc(funcUnderTest);
+                mainStep.setEvaluator(std::move(ev));
+
+                try {
+                    mainStep.start();
+                    mainStep.run();
+                    mainStep.end();
+                } catch(std::exception &e) {
+                    std::cerr << "\nNOMAD has been interrupted (" << e.what() << ")\n\n";
+                }
+
+                std::vector<NOMAD::EvalPoint> bestFeasList;
+                NOMAD::CacheBase::getInstance()->findBestFeas(bestFeasList, NOMAD::Point(),NOMAD::EvalType::BB, NOMAD::ComputeType::STANDARD, nullptr);
+                NOMAD::Point best_point = *(bestFeasList[0].getX());
+                // Represents the highest atomic condition found in one optimization run
+                double f_val = -bestFeasList[0].getF().todouble();
+                std::vector<double> x_val;
+                for (int j =0; j < best_point.size(); j++){
+                    x_val.push_back(best_point[j].todouble());
+                }
+
+                InstructionInfoMultVar &curInst = instMapMultVar[info.instID];
+                if (instMapMultVar.count(info.instID) == 0) {
+                    instMapMultVar[info.instID] = InstructionInfoMultVar(info.instID, info.opcode);
+                }
+
+                // Update best found input/atomic condition pair so far
+                if (curInst.getCandidatePair().atomicCond <  f_val && std::isfinite(f_val)){
+                    curInst.setCandidatePair({x_val, f_val});
+                }
+
+                NOMAD::CacheBase::getInstance()->resetInstance();
+            }
+        }
+
+        _printInstMapMultVar();
+    }
+
     void _1directCMAESearch(){
         int dim = funcUnderTest->getArgCount();
 
-        for (int i = 1; i <= randomIteration; i++) {
+        for (int i = 1; i <= cmaesIteration; i++) {
             std::vector<double> inputs;
             for (int j = 0; j < dim; j++){
                 inputs.push_back(_initDist());
@@ -453,6 +582,33 @@ private:
             // curInst.printEvolutionInfo(funcUnderTest);
             curInst.printBriefInfo(GSLFuncIndex);
         }
+    }
+
+    void initAllNomadParams(std::shared_ptr<NOMAD::AllParameters> allParams, size_t dim, std::vector<double> &x0)
+    {
+        // Number of variables
+        allParams->setAttributeValue( "DIMENSION", dim);
+        // The algorithm terminates after 5 seconds
+        allParams->setAttributeValue( "MAX_TIME", 5);
+        // Starting point
+        allParams->setAttributeValue( "X0", NOMAD::Point(x0) );
+
+        // Constraints and objective
+        NOMAD::BBOutputTypeList bbOutputTypes;
+        bbOutputTypes.push_back(NOMAD::BBOutputType::OBJ);    // f
+        allParams->setAttributeValue("BB_OUTPUT_TYPE", bbOutputTypes );
+        allParams->setAttributeValue("DIRECTION_TYPE", NOMAD::DirectionType::ORTHO_2N);
+        allParams->setAttributeValue("DISPLAY_DEGREE", 2);
+        allParams->setAttributeValue("DISPLAY_ALL_EVAL", false);
+        allParams->setAttributeValue("DISPLAY_UNSUCCESSFUL", false);
+
+        allParams->getRunParams()->setAttributeValue("HOT_RESTART_READ_FILES", false);
+        allParams->getRunParams()->setAttributeValue("HOT_RESTART_WRITE_FILES", false);
+
+
+        // Parameters validation
+        allParams->checkAndComply();
+
     }
 
     // The results stored in prioritizedInput.
