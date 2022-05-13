@@ -756,7 +756,6 @@ int main(int argc, char *argv[]) {
 
     EvoSolver es;
     std::unique_ptr<FloatingPointFunction> funcPtr;
-    //
 
     if (argc == 1 || (argc > 1 && strcmp(argv[1], "example") == 0)) {
         int index = 0;
@@ -772,7 +771,7 @@ int main(int argc, char *argv[]) {
     else if (argc > 2 && strcmp(argv[1], "gsl") == 0) {
 	if (!strcmp(argv[2],"all")) {
 	    for (int i = 0; i < GSLFuncList.size(); i++) {
-//            funcPtr.reset(new GSLFunction(i));
+            funcPtr.reset(new GSLFunction(i));
 		    es.run(funcPtr, i);
 	    }
 	}
@@ -782,7 +781,7 @@ int main(int argc, char *argv[]) {
 		std::cout << "Invalid index in GSLFuncList.\n";
 		return 0;
 	    }
-//            funcPtr.reset(new GSLFunction(index));
+            funcPtr.reset(new GSLFunction(index));
             es.run(funcPtr, index);
 	}
     }

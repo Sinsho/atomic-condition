@@ -1,7 +1,7 @@
 CXX=g++
 LD=g++
-INCLCMAES=-I/usr/include/eigen3/ -I/usr/include/libcmaes -lcmaes
-INCLNOMAD=-I/atom/nomad/src -I/atom/nomad/ext/sgtelib/src -lm -lnomadUtils -lnomadEval -lnomadAlgos
+INCLCMAES=-Wl,-Bdynamic -I/usr/include/eigen3/ -I/usr/include/libcmaes -lcmaes
+INCLNOMAD=-Wl,-Bdynamic -I/atom/nomad/src -I/atom/nomad/ext/sgtelib/src -lm -lnomadUtils -lnomadEval -lnomadAlgos
 CXXFLAGS=-std=c++14 -O2 -fPIC $(INCLCMAES) $(INCLNOMAD)
 
 CLANG=clang-3.9
@@ -15,7 +15,7 @@ LLVMLDFLAGS=$(shell $(LLVMCFG) --ldflags)
 
 GSLCFG=/atom/gslbuild/bin/gsl-config
 GSLCXXFLAGS=$(CXXFLAGS) $(shell $(GSLCFG) --cflags)
-GSLLDFLAGS=$(shell $(GSLCFG) --libs)
+GSLLDFLAGS=-Wl,-Bstatic $(shell $(GSLCFG) --libs)
 
 OS_NAME=$(shell uname -s)
 ifeq ($(OS_NAME), Darwin)
@@ -58,7 +58,7 @@ build/targetExample.o: src/targetExample.c lib/libPassModule.so
 solver: bin/gslSolver.out
 bin/gslSolver.out: build/gslSolver.o build/fpUtil.o build/handlers.o build/all_target.a
 	@mkdir -p bin
-	$(LD) -o $@ $^ $(GSLLDFLAGS) $(INCLCMAES) $(INCLNOMAD)
+	$(LD) -o $@ $^ $(GSLLDFLAGS) -shared $(INCLCMAES) $(INCLNOMAD)
 build/gslSolver.o: src/gslSolver.cpp $(DEPS)
 	@mkdir -p build
 	$(CXX) $(GSLCXXFLAGS) -c -o $@ $<

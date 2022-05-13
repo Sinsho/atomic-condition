@@ -34,27 +34,27 @@ double callByVector(std::function<double(Args...)> f, std::vector<double>& argum
     return callByVector(f, arguments, gen_seq<sizeof...(Args)>());
 }
 
-//template<class... Args, int... Is>
-//int gslCallByVector(std::function<int(Args...)> f, std::vector<double>& arguments, seq<Is...>)
-//{
-//    return f(arguments[Is]...);
-//}
-//
-//template<class... Args>
-//int gslCallByVector(std::function<int(Args...)> f, std::vector<double>& arguments)
-//{
-//    return gslCallByVector(f, arguments, gen_seq<sizeof...(Args)>());
-//}
+template<class... Args, int... Is>
+int gslCallByVector(std::function<int(Args...)> f, std::vector<double>& arguments, gsl_sf_result* gslSfResult, seq<Is...>)
+{
+    return f(arguments[Is]..., gslSfResult);
+}
+
+template<class... Args>
+int gslCallByVector(std::function<int(Args...)> f, std::vector<double>& arguments, gsl_sf_result* gslSfResult)
+{
+    return gslCallByVector(f, arguments, gslSfResult, gen_seq<sizeof...(Args) - 1>());
+}
 
 struct vecFunc {
     std::function<double(std::vector<double>)> func;
     int argCount;
 };
 
-//struct gslVecFunc {
-//    std::function<int(std::vector<double>, gsl_sf_result*)> func;
-//    int argCount;
-//};
+struct gslVecFunc {
+    std::function<int(std::vector<double>, gsl_sf_result*)> func;
+    int argCount;
+};
 
 template<class... Args>
 vecFunc vectorizeFunction(std::function<double(Args...)> f, int argCount){
@@ -65,25 +65,25 @@ vecFunc vectorizeFunction(std::function<double(Args...)> f, int argCount){
     return vecStruct;
 };
 
-//template<class... Args>
-//gslVecFunc gslVectorizeFunction(std::function<int(Args...)> f, int argCount){
-//    gslVecFunc vecStruct;
-//    vecStruct.func = [f](std::vector<double> args, gsl_sf_result* gslSfResult){return gslCallByVector(f, args);};
-//
-//    // Deduct arguments by one because gsl_sf_result is passed
-//    vecStruct.argCount = argCount - 1;
-//
-//    return vecStruct;
-//};
+template<class... Args>
+gslVecFunc gslVectorizeFunction(std::function<int(Args...)> f, int argCount){
+    gslVecFunc vecStruct;
+
+    vecStruct.func = [f](std::vector<double> args, gsl_sf_result* gslSfResult){return gslCallByVector(f, args, gslSfResult);};
+    // Deduct arguments by one because gsl_sf_result is passed
+    vecStruct.argCount = argCount - 1;
+
+    return vecStruct;
+};
 
 const std::vector<vecFunc> simpleFuncList = {
         vectorizeFunction(std::function<double(double, double, double)>(foo), getArgumentCount(foo)),
 };
 
 //const std::vector<gslVecFunc> GSLFuncList = {
-std::vector<std::function<int(double, gsl_sf_result*)>> GSLFuncList = {
+const std::vector<gslVecFunc> GSLFuncList = {
     // gsl_sf_airy.h
-//    std::bind(gsl_sf_airy_Ai_e, std::placeholders::_1, GSL_PREC_DOUBLE, std::placeholders::_2),
+//      gslVectorizeFunction (std::function<int(double, gsl_sf_result*)> (std::bind(gsl_sf_airy_Ai_e, std::placeholders::_1, GSL_PREC_DOUBLE, std::placeholders::_2), 1)),
 //    std::bind(gsl_sf_airy_Bi_e, std::placeholders::_1, GSL_PREC_DOUBLE, std::placeholders::_2),
 //    std::bind(gsl_sf_airy_Ai_scaled_e, std::placeholders::_1, GSL_PREC_DOUBLE, std::placeholders::_2),
 //    std::bind(gsl_sf_airy_Bi_scaled_e, std::placeholders::_1, GSL_PREC_DOUBLE, std::placeholders::_2),
@@ -92,8 +92,9 @@ std::vector<std::function<int(double, gsl_sf_result*)>> GSLFuncList = {
 //    std::bind(gsl_sf_airy_Ai_deriv_scaled_e, std::placeholders::_1, GSL_PREC_DOUBLE, std::placeholders::_2),
 //    std::bind(gsl_sf_airy_Bi_deriv_scaled_e, std::placeholders::_1, GSL_PREC_DOUBLE, std::placeholders::_2),
     // gsl_sf_bessel.h
-//      gslVectorizeFunction (std::function<int(double, gsl_sf_result*)> (gsl_sf_bessel_J0_e), getArgumentCount(gsl_sf_bessel_J0_e)),
+      gslVectorizeFunction (std::function<int(double, gsl_sf_result*)> (gsl_sf_bessel_J0_e), getArgumentCount(gsl_sf_bessel_J0_e)),
 //    gsl_sf_bessel_J1_e,
+      gslVectorizeFunction (std::function<int(double, gsl_sf_result*)> (gsl_sf_bessel_Y0_e), getArgumentCount(gsl_sf_bessel_Y0_e)),
 //    gsl_sf_bessel_Y0_e,
 //    gsl_sf_bessel_Y1_e,
 //    gsl_sf_bessel_I0_e,
@@ -245,40 +246,44 @@ protected:
 };
 
 
-//class GSLFunction : public FloatingPointFunction {
-//public:
-//    GSLFunction(int index) {
-//        gsl_set_error_handler_off();
-//
-//        if (index < 0 || index >= GSLFuncList.size()) {
-//            std::cout << "Invalid index in [GSLFunction]: " << index << '\n';
-//            GSLFuncRef = GSLFuncList[0];
-//            return;
-//        }
-//        GSLFuncRef = GSLFuncList[index];
-//        return;
-//    }
-//
-//    void call(std::vector<double> x) {
-//        comm.clear();
-//        in = x;
-//        status = GSLFuncRef.func(in, &gslres);
-//        out = gslres.val;
-//    }
-//
-//    double callAndGetResult(std::vector<double> x) {
-//        call(x);
-//        return out;
-//    }
-//
-//    double getResult() { return out; }
-//    bool isSuccess() { return (status == GSL_SUCCESS); }
-//
-//private:
-//    gslVecFunc GSLFuncRef;
-////    std::function<int(double, gsl_sf_result*)> GSLFuncRef;
-//    gsl_sf_result gslres;
-//};
+class GSLFunction : public FloatingPointFunction {
+public:
+    GSLFunction(int index) {
+        gsl_set_error_handler_off();
+
+        if (index < 0 || index >= GSLFuncList.size()) {
+            std::cout << "Invalid index in [GSLFunction]: " << index << '\n';
+            GSLFuncRef = GSLFuncList[0];
+            return;
+        }
+        GSLFuncRef = GSLFuncList[index];
+        return;
+    }
+
+    void call(std::vector<double> x) {
+        comm.clear();
+        in = x;
+        status = GSLFuncRef.func(in, &gslres);
+        out = gslres.val;
+    }
+
+    double callAndGetResult(std::vector<double> x) {
+        call(x);
+        return out;
+    }
+
+    int getArgCount(){
+        return GSLFuncRef.argCount;
+    }
+
+    double getResult() { return out; }
+    bool isSuccess() { return (status == GSL_SUCCESS); }
+
+private:
+    gslVecFunc GSLFuncRef;
+//    std::function<int(double, gsl_sf_result*)> GSLFuncRef;
+    gsl_sf_result gslres;
+};
 
 class SimpleFunction : public FloatingPointFunction {
 public:
