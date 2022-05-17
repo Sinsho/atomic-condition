@@ -68,7 +68,7 @@ public:
                     }
 
                     double atomicCond = fpUtil::revisedCondition(info.opcode, info.op1, info.op2);
-                    if (std::isfinite(atomicCond)){
+                    if ((std::isfinite(atomicCond) && func->isSuccess())){
                         res = -atomicCond;
                     }
                 }
@@ -127,22 +127,62 @@ public:
     }
 }pairLess;
 
-struct inputAtomicPair{
-    std::vector<double> inputs;
-    double atomicCond;
+class InputFitnessPairMultVar {
+public:
+    std::vector<double> input;
+    double fitness;
+
+    InputFitnessPairMultVar() {
+        input = {};
+        fitness = -std::numeric_limits<double>::max();
+    }
+    InputFitnessPairMultVar(std::vector<double> in, double fit) {
+        input = in;
+        fitness = fit;
+    }
+    bool operator < (const InputFitnessPairMultVar &rhs) const {
+        return fitness < rhs.fitness;
+    }
+    bool operator > (const InputFitnessPairMultVar &rhs) const {
+        return fitness > rhs.fitness;
+    }
 };
+class InputFitnessPairMultVarGreater {
+public:
+    bool operator () (const InputFitnessPairMultVar& lhs, const InputFitnessPairMultVar& rhs) const {
+        return lhs.fitness > rhs.fitness;
+    }
+}pairMultVarGreater;
+class InputFitnessPairMultVarLess {
+public:
+    bool operator () (const InputFitnessPairMultVar& lhs, const InputFitnessPairMultVar& rhs) const {
+        return lhs.fitness < rhs.fitness;
+    }
+}pairMultVarLess;
 
 class InstructionInfoMultVar{
 private:
     uint64_t instID;
     uint64_t opcode;
-//    std::vector<inputAtomicPair> topInputsRandom;
-//    std::map<uint64_t, inputAtomicPair> candidatePairs;
-    inputAtomicPair candidate = {{}, -std::numeric_limits<double>::max()};
-
+    uint32_t recordSize = 100;
+    std::vector<InputFitnessPairMultVar> topInputsRandom;
+    std::vector<InputFitnessPairMultVar> topInputsEvolution;
     // For recording prioritization results.
     uint32_t topInputCountToEnd;
     double   topInputConditionToEnd;
+
+private:
+    void pushHeap(std::vector<double> input, double fitness) {
+        topInputsRandom.push_back(InputFitnessPairMultVar(input, fitness));
+        std::push_heap(topInputsRandom.begin(), topInputsRandom.end(), pairMultVarGreater);
+    }
+    void popHeap() {
+        std::pop_heap(topInputsRandom.begin(), topInputsRandom.end(), pairMultVarGreater);
+        topInputsRandom.pop_back();
+    }
+    InputFitnessPairMultVar topHeap() {
+        return topInputsRandom[0];
+    }
 public:
     InstructionInfoMultVar() {
         instID = 0;
@@ -154,13 +194,42 @@ public:
     }
     uint64_t getInstID() const { return instID; }
     uint64_t getOpCode() const { return opcode; }
-    inputAtomicPair getCandidatePair() {return candidate;}
-    void setCandidatePair(inputAtomicPair pair){candidate = pair;}
+    uint32_t getRecordSize() const { return recordSize; }
+    void setRecordSize(uint32_t k) { recordSize = k; }
+
+    std::vector<InputFitnessPairMultVar> getInputsRandom() const { return topInputsRandom; }
+    std::vector<InputFitnessPairMultVar> getInputsEvolution() const { return topInputsEvolution; }
+    int getInputsRandomSize() const { return topInputsRandom.size(); }
+    int getInputsEvolutionSize() const { return topInputsEvolution.size(); }
+    void setInputsEvolution(std::vector<InputFitnessPairMultVar> l) { topInputsEvolution = l; }
+    void setInputsRandom(std::vector<InputFitnessPairMultVar> l) { topInputsRandom = l; }
+    InputFitnessPairMultVar getInputsTop() const {
+        if (topInputsRandom.empty()){
+            return InputFitnessPairMultVar();
+        }
+        return topInputsRandom[0];
+    }
+    InputFitnessPairMultVar getInputsEvolutionTop() const { return topInputsEvolution[0]; }
 
     void setTopInputCountToEnd(uint32_t c) { topInputCountToEnd = c; }
     void setTopInputConditionToEnd(double d) { topInputConditionToEnd = d; }
     uint32_t getTopInputCountToEnd() const { return topInputCountToEnd; }
     double getTopInputConditionToEnd() const { return topInputConditionToEnd; }
+
+    void pushInputFitness(std::vector<double> input, double fitness) {
+        if (!std::isfinite(fitness))
+            return;
+        if (topInputsRandom.size() < recordSize)
+        {
+            pushHeap(input, fitness);
+            return;
+        }
+        if (fitness > topHeap().fitness)
+        {
+            popHeap();
+            pushHeap(input, fitness);
+        }
+    }
 };
 
 class InstructionInfo {
@@ -285,8 +354,8 @@ private:
     double initExpRange = 20;
     double initCenterRate = 0.15;
     uint32_t randomIteration = 100000;
-    uint32_t cmaesIteration = 1000;
-    uint32_t nomadIteration = 20;
+    uint32_t cmaesIteration = 10;
+    uint32_t nomadIteration = 1;
     // For _2EvolutionSearch
     double evoGeometricP = 0.25;
     double evoNormalFactorStart = 1e-2;
@@ -318,8 +387,12 @@ public:
             _2EvolutionSearch();
             _3Prioritize();
         } else {
+//            _1RandomSearchMultiVar();
 //            _1directCMAESearch();
-            _1directNomadSearch();
+            _1RandomMultVarSearch();
+            _2directNomadSearch();
+            _3PrioritizeMultVar();
+
         }
         finishTime = std::chrono::high_resolution_clock::now();
         elapsedTime = finishTime - startTime;
@@ -357,14 +430,52 @@ private:
         return x;
     }
 
-    void _1directNomadSearch(){
+    void _1RandomMultVarSearch() {
+        double y;
+
         int dim = funcUnderTest->getArgCount();
 
-        for (int i = 1; i <= nomadIteration; i++) {
+        for (int i = 0; i <= randomIteration; i++) {
             std::vector<double> inputs;
             for (int j = 0; j < dim; j++) {
                 inputs.push_back(fpUtil::randDouble());
             }
+
+            funcUnderTest->call(inputs);
+
+            // print the progress.
+            if (i % (randomIteration/100) == 0)
+                std::cout << "1. Random Search Processing: " << i / (randomIteration/100) << "%, " << i << "..." << "\r" << std::flush;
+
+            // Only log when the execution is success.
+            if (!funcUnderTest->isSuccess())
+                continue;
+            y = funcUnderTest->getResult();
+
+            std::vector<InstInfo> infoList = funcUnderTest->getInstInfoList();
+            for (const auto &info : infoList) {
+                if (instMapMultVar.count(info.instID) == 0) {
+                    instMapMultVar[info.instID] = InstructionInfoMultVar(info.instID, info.opcode);
+                }
+
+                double fit = fpUtil::revisedCondition(info.opcode, info.op1, info.op2);
+
+                InstructionInfoMultVar &curInst = instMapMultVar[info.instID];
+                curInst.pushInputFitness(inputs, fit);
+            }
+        }
+        std::cout << "\n1. Random Search Done.\n";
+    }
+
+    void _2directNomadSearch(){
+        int dim = funcUnderTest->getArgCount();
+
+        for (auto &kv : instMapMultVar) {
+
+            uint64_t instid = kv.first;
+            InstructionInfoMultVar &curInst = kv.second;
+
+            std::vector<double> inputs = curInst.getInputsTop().input;
 
             funcUnderTest->call(inputs);
             std::vector<InstInfo> infoList = funcUnderTest->getInstInfoList();
@@ -401,22 +512,22 @@ private:
                     instMapMultVar[info.instID] = InstructionInfoMultVar(info.instID, info.opcode);
                 }
 
-                // Update best found input/atomic condition pair so far
-                if (curInst.getCandidatePair().atomicCond <  f_val && std::isfinite(f_val)){
-                    curInst.setCandidatePair({x_val, f_val});
+                if (f_val > 1e1) {
+                    curInst.pushInputFitness(x_val, f_val);
                 }
 
                 NOMAD::CacheBase::getInstance()->resetInstance();
             }
+
         }
 
-        _printInstMapMultVar();
+
     }
 
     void _1directCMAESearch(){
         int dim = funcUnderTest->getArgCount();
 
-        for (int i = 1; i <= cmaesIteration; i++) {
+        for (int i = 0; i <= cmaesIteration; i++) {
             std::vector<double> inputs;
             for (int j = 0; j < dim; j++){
                 inputs.push_back(_initDist());
@@ -444,7 +555,7 @@ private:
                         res = fpUtil::revisedCondition(tmpInfo.opcode, tmpInfo.op1, tmpInfo.op2);
                     }
 
-                    if (std::isfinite(res)){
+                    if (std::isfinite(res) && this->funcUnderTest->isSuccess()){
                         // Invert atomic condition since CMAES minimizes
                         return -res;
                     }
@@ -465,15 +576,92 @@ private:
                     double f_val = -cmasols.best_candidate().get_fvalue();
                     std::vector<double> x_val = cmasols.best_candidate().get_x();
 
-                    // Update best found input/atomic condition pair so far
-                    if (curInst.getCandidatePair().atomicCond <  f_val && std::isfinite(f_val)){
-                        curInst.setCandidatePair({x_val, f_val});
+                    // Push to list if not infinite & not too small
+                    if (f_val != std::numeric_limits<double>::max() && f_val > 1e1){
+                        curInst.pushInputFitness(x_val, f_val);
                     }
                 }
             }
         }
 
-        _printInstMapMultVar();
+    }
+
+    // The results stored in prioritizedInput.
+    void _3PrioritizeMultVar() {
+
+        std::vector<double> x;
+        double y;
+        int status;
+        gsl_sf_result res;
+
+        std::vector<InputFitnessPairMultVar> inputsWithCountToEnd;
+        std::map<std::vector<double>, std::pair<double, double>> io;
+
+        // The prior score of an input is calculated from
+        // the correspounding instruction to end.
+        for (auto &kv : instMapMultVar) {
+            uint64_t instid = kv.first;
+            InstructionInfoMultVar & curInst = kv.second;
+
+            std::vector<double> curInput = curInst.getInputsTop().input;
+            if (curInput.empty()){
+                continue;
+            }
+
+            double curFit = curInst.getInputsTop().fitness;
+            io[curInput].second = curFit;
+
+            funcUnderTest->call(curInput);
+            y = funcUnderTest->getResult();
+
+            bool started = false;
+            double logConditionToEnd = 0;
+            uint32_t countToEnd = 0;
+            std::vector<InstInfo> infoList = funcUnderTest->getInstInfoList();
+            for (const auto &info : infoList) {
+                // we need to find the curInput running to the curInst with the curFit.
+                // Considering a inst maybe executed multiple times.
+                if (started == false && info.instID == instid) {
+                    double tmpFit = fpUtil::revisedCondition(info.opcode, info.op1, info.op2);
+                    if (tmpFit == curFit) {
+                        started = true;
+                    }
+                }
+                if (started == true) {
+                    double rawCond = fpUtil::rawCondition(info.opcode, info.op1, info.op2);
+                    // std::cout << "Raw Cond: " << rawCond;
+                    // std::cout << ' ' << info.op1 << ' ' << info.op2 << ' ' << info.opcode << "\n";
+                    // Condition
+                    if ( instMapMultVar.count(info.instID) != 0 && std::isfinite(rawCond) ) {
+                        logConditionToEnd += log(rawCond);
+                    }
+                    // Count
+                    if ( instMapMultVar.count(info.instID) != 0) {
+                        countToEnd += 1;
+                    }
+                }
+            }
+            curInst.setTopInputCountToEnd(countToEnd);
+            curInst.setTopInputConditionToEnd(logConditionToEnd);
+
+            inputsWithCountToEnd.push_back(InputFitnessPairMultVar(curInput, countToEnd));
+            io[curInput].first = y;
+        }
+
+        // Prioritize based on condition to end.
+        sort(inputsWithCountToEnd.begin(), inputsWithCountToEnd.end());
+
+        std::cout << "***********Results after Prioritize***********\n";
+        std::cout << "Most suspicious input first: \n";
+        for (auto & i : inputsWithCountToEnd) {
+            std::cout << "Input: ";
+            for(double d : i.input){
+                std::cout << std::setprecision(16) << std::scientific << d << ", ";
+            }
+
+            std::cout << "Output: " << io[i.input].first << ", Atomic cond: " << io[i.input].second << '\n';
+        }
+        std::cout << "End of suspicious input list.\n";
     }
 
     // The results stored in instMap.
@@ -589,7 +777,8 @@ private:
         // Number of variables
         allParams->setAttributeValue( "DIMENSION", dim);
         // The algorithm terminates after 5 seconds
-        allParams->setAttributeValue( "MAX_TIME", 5);
+        allParams->setAttributeValue( "MAX_TIME", 1);
+
         // Starting point
         allParams->setAttributeValue( "X0", NOMAD::Point(x0) );
 
@@ -598,7 +787,7 @@ private:
         bbOutputTypes.push_back(NOMAD::BBOutputType::OBJ);    // f
         allParams->setAttributeValue("BB_OUTPUT_TYPE", bbOutputTypes );
         allParams->setAttributeValue("DIRECTION_TYPE", NOMAD::DirectionType::ORTHO_2N);
-        allParams->setAttributeValue("DISPLAY_DEGREE", 2);
+        allParams->setAttributeValue("DISPLAY_DEGREE", 0);
         allParams->setAttributeValue("DISPLAY_ALL_EVAL", false);
         allParams->setAttributeValue("DISPLAY_UNSUCCESSFUL", false);
 
@@ -690,28 +879,6 @@ private:
         std::cout.unsetf(std::ios_base::floatfield);
         std::cout << "Execution Time: " << elapsedTime.count() << " sec.\n";
         std::cout << "************************************************\n";
-    }
-
-    void _printInstMapMultVar(){
-        for (const auto &entry : instMapMultVar){
-            uint64_t index = entry.first;
-            InstructionInfoMultVar value = entry.second;
-
-            std::cout << "************************************************\n";
-            std::cout << "Index: " << index << " atomicCond: " << value.getCandidatePair().atomicCond << " inputs: ";
-            for(double d : value.getCandidatePair().inputs){
-                std::cout << d << ", ";
-            }
-            std::cout << std::endl;
-            std::cout << "************************************************\n";
-//            funcUnderTest->call(value.getCandidatePair().inputs);
-//            std::vector<InstInfo> infolist = funcUnderTest->getInstInfoList();
-//            for (const auto &info : infolist) {
-//                double atomicCond = fpUtil::revisedCondition(info.opcode, info.op1, info.op2);
-//                std::cout << "Instid: "<< info.instID <<"Atomic cond: " << atomicCond << std::endl;
-//            }
-//            std::cout << "Real atomic cond: ";
-        }
     }
 
     void _writeToFile() {

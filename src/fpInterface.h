@@ -92,6 +92,7 @@ const std::vector<gslVecFunc> GSLFuncList = {
 //    std::bind(gsl_sf_airy_Ai_deriv_scaled_e, std::placeholders::_1, GSL_PREC_DOUBLE, std::placeholders::_2),
 //    std::bind(gsl_sf_airy_Bi_deriv_scaled_e, std::placeholders::_1, GSL_PREC_DOUBLE, std::placeholders::_2),
     // gsl_sf_bessel.h
+      gslVectorizeFunction (std::function<int(double, double, gsl_sf_result*)> (gsl_sf_bessel_Ynu_e), getArgumentCount(gsl_sf_bessel_Ynu_e)),
       gslVectorizeFunction (std::function<int(double, gsl_sf_result*)> (gsl_sf_bessel_J0_e), getArgumentCount(gsl_sf_bessel_J0_e)),
 //    gsl_sf_bessel_J1_e,
       gslVectorizeFunction (std::function<int(double, gsl_sf_result*)> (gsl_sf_bessel_Y0_e), getArgumentCount(gsl_sf_bessel_Y0_e)),
@@ -277,7 +278,7 @@ public:
     }
 
     double getResult() { return out; }
-    bool isSuccess() { return (status == GSL_SUCCESS); }
+    bool isSuccess() { return (status == GSL_SUCCESS && !std::isnan(out) && std::isfinite(out)); }
 
 private:
     gslVecFunc GSLFuncRef;
