@@ -58,7 +58,7 @@ build/targetExample.o: src/targetExample.c lib/libPassModule.so
 solver: bin/gslSolver.out
 bin/gslSolver.out: build/gslSolver.o build/fpUtil.o build/handlers.o build/all_target.a
 	@mkdir -p bin
-	$(LD) -o $@ $^ $(GSLLDFLAGS) -shared $(INCLCMAES) $(INCLNOMAD)
+	$(LD) -o $@ $^ $(GSLLDFLAGS) $(INCLCMAES) $(INCLNOMAD)
 build/gslSolver.o: src/gslSolver.cpp $(DEPS)
 	@mkdir -p build
 	$(CXX) $(GSLCXXFLAGS) -c -o $@ $<
