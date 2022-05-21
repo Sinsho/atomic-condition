@@ -354,7 +354,7 @@ private:
     double initExpRange = 20;
     double initCenterRate = 0.15;
     uint32_t randomIteration = 100000;
-    uint32_t cmaesIteration = 10;
+    uint32_t cmaesIteration = 15;
     uint32_t nomadIteration = 1;
     // For _2EvolutionSearch
     double evoGeometricP = 0.25;
@@ -387,18 +387,22 @@ public:
             _2EvolutionSearch();
             _3Prioritize();
         } else {
-//            _1RandomSearchMultiVar();
-//            _1directCMAESearch();
-            _1RandomMultVarSearch();
-            _2directNomadSearch();
+            _1directCMAESearch();
+//            _1RandomMultVarSearch();
+//            _2NomadSearch();
             _3PrioritizeMultVar();
 
         }
         finishTime = std::chrono::high_resolution_clock::now();
         elapsedTime = finishTime - startTime;
 
-        _writeToFile();
-        _printInfo();
+        if (funcUnderTest->getArgCount() == 1) {
+            _writeToFile();
+            _printInfo();
+        } else {
+            _writeToFileMultVar();
+            _printInfoMultVar();
+        }
     }
 
     void setRandomIteration(uint32_t iter) { randomIteration = iter; }
@@ -414,6 +418,8 @@ private:
         // Fast clear instMap.
         std::map<uint64_t, InstructionInfo> emptyMap;
         std::swap(emptyMap, instMap);
+        std::map<uint64_t, InstructionInfoMultVar> emptyMultVarMap;
+        std::swap(emptyMultVarMap, instMapMultVar);
         std::cout << "Current Analyzing Function Index: " << index << std::endl;
     }
 
@@ -467,7 +473,7 @@ private:
         std::cout << "\n1. Random Search Done.\n";
     }
 
-    void _2directNomadSearch(){
+    void _2NomadSearch(){
         int dim = funcUnderTest->getArgCount();
 
         for (auto &kv : instMapMultVar) {
@@ -566,19 +572,31 @@ private:
                 libcmaes::CMAParameters<> cmaparams(inputs,sigma);
                 libcmaes::CMASolutions cmasols = libcmaes::cmaes<>(optFunc,cmaparams);
 
-                InstructionInfoMultVar &curInst = instMapMultVar[info.instID];
-                if (cmasols.run_status() > 0){
-                    if (instMapMultVar.count(info.instID) == 0) {
-                        instMapMultVar[info.instID] = InstructionInfoMultVar(info.instID, info.opcode);
-                    }
 
+                if (cmasols.run_status() > 0){
                     // Represents the highest atomic condition found in one optimization run
-                    double f_val = -cmasols.best_candidate().get_fvalue();
+                    double f_val = cmasols.best_candidate().get_fvalue();
+                    double fitness;
+
+                    if (f_val == std::numeric_limits<double>::max()){
+                        fitness = std::numeric_limits<double>::min();
+                    } else {
+                        fitness = -f_val;
+                    }
                     std::vector<double> x_val = cmasols.best_candidate().get_x();
 
+                    double y = funcUnderTest->callAndGetResult(x_val);
+                    bool bla = funcUnderTest->isSuccess();
+
                     // Push to list if not infinite & not too small
-                    if (f_val != std::numeric_limits<double>::max() && f_val > 1e1){
-                        curInst.pushInputFitness(x_val, f_val);
+                    if (fitness > 1e1){
+                        if (instMapMultVar.count(info.instID) == 0) {
+                            instMapMultVar[info.instID] = InstructionInfoMultVar(info.instID, info.opcode);
+                        }
+                        InstructionInfoMultVar &curInst = instMapMultVar[info.instID];
+
+                        unstableInstCount++;
+                        curInst.pushInputFitness(x_val, fitness);
                     }
                 }
             }
@@ -611,8 +629,7 @@ private:
             double curFit = curInst.getInputsTop().fitness;
             io[curInput].second = curFit;
 
-            funcUnderTest->call(curInput);
-            y = funcUnderTest->getResult();
+            y = funcUnderTest->callAndGetResult(curInput);
 
             bool started = false;
             double logConditionToEnd = 0;
@@ -629,8 +646,6 @@ private:
                 }
                 if (started == true) {
                     double rawCond = fpUtil::rawCondition(info.opcode, info.op1, info.op2);
-                    // std::cout << "Raw Cond: " << rawCond;
-                    // std::cout << ' ' << info.op1 << ' ' << info.op2 << ' ' << info.opcode << "\n";
                     // Condition
                     if ( instMapMultVar.count(info.instID) != 0 && std::isfinite(rawCond) ) {
                         logConditionToEnd += log(rawCond);
@@ -881,6 +896,16 @@ private:
         std::cout << "************************************************\n";
     }
 
+    // The evolution search info.
+    void _printInfoMultVar() {
+        std::cout << "************************************************\n";
+        std::cout << "Actual    Unstable Instructions Size: " << unstableInstCount << '\n';
+        std::cout << "Potential Unstable Instructions Size: " << instMapMultVar.size() << '\n';
+        std::cout.unsetf(std::ios_base::floatfield);
+        std::cout << "Execution Time: " << elapsedTime.count() << " sec.\n";
+        std::cout << "************************************************\n";
+    }
+
     void _writeToFile() {
         std::ofstream myfile;
         myfile.open(outPath, std::ofstream::out | std::ofstream::app);
@@ -908,6 +933,45 @@ private:
             myfile << std::setprecision(5) << std::scientific << pair.fitness << ", ";
             myfile << std::setprecision(16) << std::scientific << pair.input << ", ";
             std::vector<double> inputs = {pair.input};
+            myfile << std::setprecision(16) << std::scientific << funcUnderTest->callAndGetResult(inputs) << ", ";
+            myfile << curInst.getTopInputCountToEnd() << ", ";
+            myfile << curInst.getTopInputConditionToEnd() << "\n";
+        }
+        myfile << "***************************************\n";
+        myfile.close();
+    }
+
+    void _writeToFileMultVar() {
+        std::ofstream myfile;
+        myfile.open(outPath, std::ofstream::out | std::ofstream::app);
+        // Write Timestamp.
+        std::time_t stamp = time(NULL);
+        myfile << "---------------------------------------\n";
+        myfile << "Time: " << std::ctime(&stamp) << '\n';
+        // Write Function Index.
+        myfile << "Function Index: " << GSLFuncIndex << '\n';
+        myfile << "Actual    Unstable Instructions Size: " << unstableInstCount << '\n';
+        myfile << "Potential Unstable Instructions Size: " << instMapMultVar.size() << '\n';
+        myfile << "Execution Time: " << elapsedTime.count() << " sec.\n";
+        myfile << "Format: InstID, OpCode, MaxAtomCond, ArgCount, Input, Output, CountToEnd, ConditionToEnd\n";
+        // Write Computation Results.
+        for (const auto &kv : instMapMultVar) {
+            uint64_t instid = kv.first;
+            const InstructionInfoMultVar & curInst = kv.second;
+
+            if (curInst.getInputsRandomSize() == 0)
+                continue;
+            InputFitnessPairMultVar pair = curInst.getInputsTop();
+            std::vector<double> inputs = pair.input;
+            myfile << "Data: ";
+            myfile << curInst.getInstID() << ", ";
+            myfile << curInst.getOpCode() << ", ";
+            myfile << std::setprecision(5) << std::scientific << pair.fitness << ", ";
+            myfile << funcUnderTest->getArgCount() << ", ";
+            myfile << std::setprecision(16) << std::scientific;
+            for (double d : inputs) {
+                myfile << std::setprecision(16) << d << ", ";
+            }
             myfile << std::setprecision(16) << std::scientific << funcUnderTest->callAndGetResult(inputs) << ", ";
             myfile << curInst.getTopInputCountToEnd() << ", ";
             myfile << curInst.getTopInputConditionToEnd() << "\n";
