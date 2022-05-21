@@ -1,7 +1,9 @@
 import mpmath
 import io
-import json
-import math
+
+
+def func_jnu(nu, x):
+    return mpmath.besselj(nu, x)
 
 
 def func_hypergeom2f1(a, b, c, z):
@@ -10,10 +12,6 @@ def func_hypergeom2f1(a, b, c, z):
 
 def func_ynu(nu, x):
     return mpmath.bessely(nu, x)
-
-
-def func_jnu(nu, x):
-    return mpmath.besselj(nu, x)
 
 
 def func_inu(nu, x):
@@ -58,9 +56,9 @@ def func_beta(x, y):
 
 
 funcDict = {
-    0: func_hypergeom2f1,
-    1: func_ynu,
-    2: func_jnu,
+    0: func_jnu,
+    1: func_hypergeom2f1,
+    2: func_ynu,
     3: func_inu,
     4: func_inu_scaled,
     5: func_coulomb_cl,

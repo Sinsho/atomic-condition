@@ -354,7 +354,7 @@ private:
     double initExpRange = 20;
     double initCenterRate = 0.15;
     uint32_t randomIteration = 100000;
-    uint32_t cmaesIteration = 15;
+    uint32_t cmaesIteration = 19;
     uint32_t nomadIteration = 1;
     // For _2EvolutionSearch
     double evoGeometricP = 0.25;
@@ -533,7 +533,7 @@ private:
     void _1directCMAESearch(){
         int dim = funcUnderTest->getArgCount();
 
-        for (int i = 0; i <= cmaesIteration; i++) {
+        for (int i = 0; i < cmaesIteration; i++) {
             std::vector<double> inputs;
             for (int j = 0; j < dim; j++){
                 inputs.push_back(_initDist());
@@ -569,7 +569,7 @@ private:
                 };
 
                 double sigma = 0.1;
-                libcmaes::CMAParameters<> cmaparams(inputs,sigma);
+                libcmaes::CMAParameters<> cmaparams(inputs,sigma, -1, 0xdeadbeef);
                 libcmaes::CMASolutions cmasols = libcmaes::cmaes<>(optFunc,cmaparams);
 
 

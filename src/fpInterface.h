@@ -81,9 +81,9 @@ const std::vector<vecFunc> simpleFuncList = {
 };
 
 const std::vector<gslVecFunc> GSLFuncList = {
+        gslVectorizeFunction (std::function<int(double, double, gsl_sf_result*)> (gsl_sf_bessel_Jnu_e), getArgumentCount(gsl_sf_bessel_Jnu_e)),
         gslVectorizeFunction (std::function<int(double, double, double, double, gsl_sf_result*)> (gsl_sf_hyperg_2F1_e), getArgumentCount(gsl_sf_hyperg_2F1_e)),
         gslVectorizeFunction (std::function<int(double, double, gsl_sf_result*)> (gsl_sf_bessel_Ynu_e), getArgumentCount(gsl_sf_bessel_Ynu_e)),
-        gslVectorizeFunction (std::function<int(double, double, gsl_sf_result*)> (gsl_sf_bessel_Jnu_e), getArgumentCount(gsl_sf_bessel_Jnu_e)),
         gslVectorizeFunction (std::function<int(double, double, gsl_sf_result*)> (gsl_sf_bessel_Inu_e), getArgumentCount(gsl_sf_bessel_Inu_e)),
         gslVectorizeFunction (std::function<int(double, double, gsl_sf_result*)> (gsl_sf_bessel_Inu_scaled_e), getArgumentCount(gsl_sf_bessel_Inu_scaled_e)),
         gslVectorizeFunction (std::function<int(double, double, gsl_sf_result*)> (gsl_sf_coulomb_CL_e), getArgumentCount(gsl_sf_coulomb_CL_e)),
