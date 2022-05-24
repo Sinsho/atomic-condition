@@ -1,6 +1,6 @@
 # Detecting Floating-Point Errors via Atomic Conditions MultiVar Extension
 ## Disclaimer
-This repository is forked from [here](https://github.com/FP-Analysis/atomic-condition). And extended to work with
+This repository is forked from [here](https://github.com/FP-Analysis/atomic-condition) and extended to work with
 multivariate functions. This work changes fundamentally how functions are read and processed and as such is not
 easily merged to the original repository.
 
